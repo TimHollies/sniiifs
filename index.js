@@ -2,6 +2,8 @@
  * Module dependencies.
  */
 
+require("dotenv").config();
+
 var logger = require("koa-logger");
 var serve = require("koa-static");
 var parse = require("co-busboy");
@@ -11,14 +13,31 @@ var app = new Koa();
 var os = require("os");
 var path = require("path");
 var { get, post } = require("koa-route");
-var { isNaN } = require("lodash");
 var mount = require("koa-mount");
 
 var sharp = require("sharp");
 
+const rotateHandler = require("./src/rotate");
+const sizeHandler = require("./src/size");
+
 // log requests
 
 app.use(logger());
+
+// sessions
+const session = require("koa-session");
+app.keys = [process.env.APP_KEY];
+app.use(session({}, app));
+
+// body parser
+const bodyParser = require("koa-bodyparser");
+app.use(bodyParser());
+
+// authentication
+require("./auth");
+const passport = require("koa-passport");
+app.use(passport.initialize());
+app.use(passport.session());
 
 // custom 404
 
@@ -27,6 +46,24 @@ app.use(function*(next) {
   if (this.body || !this.idempotent) return;
   this.redirect("/404.html");
 });
+
+// POST /login
+app.use(
+  post(
+    "/login",
+    passport.authenticate("local", {
+      successRedirect: "/",
+      failureRedirect: "/"
+    })
+  )
+);
+
+app.use(
+  get("/logout", function() {
+    this.logout();
+    this.redirect("/index.html");
+  })
+);
 
 // serve files from ./public
 
@@ -44,37 +81,14 @@ app.use(
     if (fs.existsSync(path.join(__dirname, "uploads", id))) {
       const image = sharp(fs.readFileSync(path.join(__dirname, "uploads", id)));
 
-      const rotationParts = rotation.match(/(!)?([0-9]*)/);
-      if (rotationParts === null) {
+      try {
+        sizeHandler(image, size);
+        rotateHandler(image, rotation);
+      } catch (e) {
         this.status = 400;
-        this.body = "Invalid rotation code";
+        this.body = e.message;
         return;
       }
-
-      const rotationDegrees = parseInt(rotationParts[2]);
-      if (isNaN(rotationDegrees)) {
-        this.status = 400;
-        this.body = "Invalid rotation code";
-        return;
-      }
-
-      if (rotationDegrees < 0 || rotationDegrees > 360) {
-        this.status = 400;
-        this.body = "Rotation must be between 0 and 360 degrees";
-        return;
-      }
-
-      if (rotationDegrees % 90 !== 0) {
-        this.status = 400;
-        this.body = "Currently SNIIIF only supports rotations in 90 degrees";
-        return;
-      }
-
-      if (rotationParts[1] !== undefined) {
-        image.flip(true);
-      }
-
-      image.rotate(rotationDegrees);
 
       this.type = "image/jpeg";
       this.body = yield image.toBuffer();
@@ -87,29 +101,32 @@ app.use(
 
 // handle uploads
 
-app.use(function*(next) {
-  // ignore non-POSTs
-  if ("POST" != this.method) return yield next;
+app.use(
+  post("/image-service", function*(next) {
+    // ignore non-POSTs
+    if (this.isAuthenticated()) {
+      // multipart upload
+      var parts = parse(this);
+      var part;
 
-  // multipart upload
-  var parts = parse(this);
-  var part;
+      while ((part = yield parts)) {
+        var stream = fs.createWriteStream(
+          path.join(
+            __dirname,
+            "uploads",
+            Math.floor(Math.random().toString() * 10000000).toString() + ".jpg"
+          )
+        );
+        part.pipe(stream);
+        console.log("uploading %s -> %s", part.filename, stream.path);
+      }
 
-  while ((part = yield parts)) {
-    var stream = fs.createWriteStream(
-      path.join(
-        __dirname,
-        "uploads",
-        Math.floor(Math.random().toString() * 10000000),
-        ".jpg"
-      )
-    );
-    part.pipe(stream);
-    console.log("uploading %s -> %s", part.filename, stream.path);
-  }
-
-  this.redirect("/");
-});
+      this.redirect("/");
+    } else {
+      this.redirect("/login.html");
+    }
+  })
+);
 
 // listen
 

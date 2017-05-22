@@ -1,4 +1,4 @@
-# SNIIIF
+# SNIIIFS
 
 Simple node IIIF server using koa and sharp. The only challenging part is mapping the syntax from the IIIF standard into calls into the sharp library. 
 
@@ -6,3 +6,5 @@ Simple node IIIF server using koa and sharp. The only challenging part is mappin
 - [Sharp Library](http://sharp.dimens.io/en/stable)
 
 In addition to the IIIF spec this server also allows image upload from authenticated users.
+
+The project aims to be useable as a standalone application and to allow embedding in Koa-based web applications.

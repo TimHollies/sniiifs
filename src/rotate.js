@@ -17,12 +17,8 @@ module.exports = (image, rotation) => {
     throw new Error("Rotation must be between 0 and 360 degrees");
   }
 
-  if (rotationDegrees % 90 !== 0) {
-    throw new Error("Currently SNIIIF only supports rotations in 90 degrees");
-  }
-
   if (rotationParts[1] !== undefined) {
-    image.flip(true);
+    image.flip(false, true);
   }
 
   image.rotate(rotationDegrees);

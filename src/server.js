@@ -15,27 +15,51 @@ var sharp = require("sharp");
 const rotateHandler = require("./rotate");
 const sizeHandler = require("./size");
 
+var Jimp = require("jimp");
+
 module.exports = {};
 
 module.exports.imageService = get(
   "/image-service/:id/:region/:size/:rotation/:quality",
   function*(id, region, size, rotation, quality) {
     if (fs.existsSync(path.join(__dirname, "..", "uploads", id))) {
-      const image = sharp(
-        fs.readFileSync(path.join(__dirname, "..", "uploads", id))
-      );
+      // open a file called "lenna.png"
+      yield new Promise((res, rej) => {
+        Jimp.read(path.join(__dirname, "..", "uploads", id), (err, image) => {
+          if (err) {
+            rej({
+              code: 500,
+              message: `Could not load image with ID ${id}`
+            });
+          }
+          res(image);
+        });
+      })
+        .then(image => {
+          try {
+            sizeHandler(image, size);
+            rotateHandler(image, rotation);
+          } catch (e) {
+            return Promise.reject({
+              code: 400,
+              message: e.message
+            });
+          }
 
-      try {
-        sizeHandler(image, size);
-        rotateHandler(image, rotation);
-      } catch (e) {
-        this.status = 400;
-        this.body = e.message;
-        return;
-      }
-
-      this.type = "image/jpeg";
-      this.body = yield image.toBuffer();
+          return new Promise(res => {
+            image.getBuffer("image/jpeg", (err, buffer) => {
+              res(buffer);
+            });
+          });
+        })
+        .then(buffer => {
+          this.type = "image/jpeg";
+          this.body = buffer;
+        })
+        .catch(err => {
+          this.state = err.code;
+          this.body = err.message;
+        });
     } else {
       this.status = 404;
       this.body = `No image found with ID ${id}`;
